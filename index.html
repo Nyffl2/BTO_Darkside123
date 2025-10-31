@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="my">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ရုပ်ရှင်ကြည့်ရှုသူ မျက်နှာပြင်</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Supabase Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #10B981; /* Emerald-500 */
+            --bg-dark: #0F172A; /* Slate-900 (ပိုမိုနက်မှောင်သော နောက်ခံ) */
+            --card-bg: #1E293B; /* Slate-800 */
+            --text-light: #F1F5F9; /* Slate-100 */
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-light);
+        }
+        .movie-card {
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .movie-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body>
+
+<div id="app" class="app-container p-4 sm:p-8 max-w-7xl mx-auto">
+    
+    <!-- ခေါင်းစီး -->
+    <header class="mb-8 border-b border-slate-700 pb-4">
+        <h1 class="text-4xl font-extrabold text-emerald-400 text-center sm:text-left">
+            <span class="block sm:inline">BTO DARKSIDE</span>
+            <span id="back-to-list" class="text-base font-normal text-slate-400 cursor-pointer ml-4 hover:text-emerald-300 hidden" onclick="window.navigate('list')">
+                &larr; စာရင်းသို့ ပြန်သွားရန်
+            </span>
+        </h1>
+    </header>
+
+    <!-- အဓိက အကြောင်းအရာနေရာ -->
+    <div id="content-area">
+        <!-- JS ဖြင့် ဖော်ပြပေးမည် -->
+        <p class="text-center text-slate-400 mt-20">ဒေတာများကို ယူဆောင်နေပါသည်။ ခဏစောင့်ပါ။...</p>
+    </div>
+
+    <!-- Loading Spinner (ဒေတာယူနေစဉ်) -->
+    <div id="loading-spinner" class="fixed inset-0 bg-slate-900 bg-opacity-70 z-50 flex items-center justify-center hidden">
+        <svg class="animate-spin -ml-1 mr-3 h-10 w-10 text-emerald-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+    </div>
+
+</div>
+
+<script>
+    // Supabase လျှို့ဝှက်ချက်များ (Admin Panel မှ ကူးယူထားသည်)
+    const SUPABASE_URL = 'https://gjccanwperewhngnwjol.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdqY2NhbndwZXJld2huZ253am9sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE4MzU4NzAsImV4cCI6MjA3NzQxMTg3MH0.pYmunnWuYowpqvx1W04iPr0Ut1AtZSI7j9QMIGnjeZM';
+    const TABLE_NAME = 'movies';
+
+    // Supabase စတင်ခြင်း
+    const { createClient } = supabase;
+    let supabaseClient = null;
+
+    let allMovies = []; // ဒေတာဘေ့စ်မှ ယူလာသည့် ရုပ်ရှင်အားလုံး
+    let uniqueCategories = []; // ရရှိနိုင်သော အမျိုးအစားများ
+
+    let state = {
+        currentPage: 'list', // 'list' or 'detail'
+        selectedMovieId: null,
+        searchTerm: '',
+        selectedCategory: 'အားလုံး', // Filter အတွက်
+    };
+
+    const contentArea = document.getElementById('content-area');
+    const backToListBtn = document.getElementById('back-to-list');
+    const loadingSpinner = document.getElementById('loading-spinner');
+
+    function toggleLoading(show) {
+        loadingSpinner.classList.toggle('hidden', !show);
+    }
+
+    async function initSupabase() {
+        if (SUPABASE_URL === 'YOUR_SUPABASE_URL' || SUPABASE_ANON_KEY === 'YOUR_SUPABASE_ANON_KEY') {
+            contentArea.innerHTML = `<p class="text-red-500 p-4 text-center mt-20">Supabase ကီးများ ထည့်သွင်းရန် လိုအပ်ပါသည်။</p>`;
+            return;
+        }
+        try {
+            toggleLoading(true);
+            supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            await fetchAllMovies(); 
+        } catch (error) {
+            console.error("Supabase စတင်ရာတွင် အမှား:", error);
+            contentArea.innerHTML = `<p class="text-red-500 p-4 mt-20">ဒေတာ အမှား: ${error.message} (SELECT Policy ကို စစ်ဆေးပါ)</p>`;
+        } finally {
+            toggleLoading(false);
+            renderApp();
+        }
+    }
+
+    // Supabase မှ ရုပ်ရှင်ဒေတာ အားလုံးကို ယူဆောင်လာခြင်း
+    async function fetchAllMovies() {
+        const { data, error } = await supabaseClient
+            .from(TABLE_NAME)
+            .select('*');
+
+        if (error) throw error; 
+
+        allMovies = data;
+        
+        // Category များ စုဆောင်းခြင်း
+        const categories = new Set(['အားလုံး']);
+        data.forEach(movie => {
+            if (movie.category) {
+                // Category များကို comma ဖြုတ်ပြီး ခွဲနိုင်သည်ဟု ယူဆပါ
+                movie.category.split(',').forEach(cat => {
+                    const trimmedCat = cat.trim();
+                    if (trimmedCat) categories.add(trimmedCat);
+                });
+            }
+        });
+        uniqueCategories = Array.from(categories).sort();
+    }
+
+    // --- Routing နှင့် Rendering ---
+
+    function navigate(page, movieId = null) {
+        state.currentPage = page;
+        state.selectedMovieId = movieId;
+
+        // URL Hash ကို ပြောင်းလဲခြင်း (Browser Navigation ကို အထောက်အပံ့ပေးရန်)
+        if (page === 'detail' && movieId) {
+            window.location.hash = `#movie-${movieId}`;
+        } else {
+            window.location.hash = '';
+        }
+
+        renderApp();
+    }
+
+    function renderApp() {
+        if (!supabaseClient || allMovies.length === 0) {
+            if (!loadingSpinner.classList.contains('hidden')) return; // Loading ပြီးမှ ဆက်လုပ်
+        }
+
+        backToListBtn.classList.toggle('hidden', state.currentPage === 'list');
+        
+        if (state.currentPage === 'list') {
+            renderMovieList();
+        } else if (state.currentPage === 'detail') {
+            renderMovieDetail();
+        }
+    }
+
+    // --- List View Rendering ---
+
+    function renderControls() {
+        // Filter Buttons
+        const filterButtons = uniqueCategories.map(cat => `
+            <button 
+                onclick="window.setCategoryFilter('${cat}')"
+                class="px-4 py-2 text-sm font-semibold rounded-full transition duration-150 
+                ${state.selectedCategory === cat 
+                    ? 'bg-emerald-500 text-white shadow-lg' 
+                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}
+            ">
+                ${cat}
+            </button>
+        `).join('');
+
+        return `
+            <div class="mb-8 p-4 bg-slate-800 rounded-xl shadow-lg">
+                <!-- Search Bar -->
+                <input 
+                    type="text" 
+                    placeholder="ရုပ်ရှင်ခေါင်းစဉ်ဖြင့် ရှာဖွေပါ..." 
+                    id="search-input"
+                    value="${state.searchTerm}"
+                    oninput="window.setSearchTerm(this.value)"
+                    class="w-full p-4 mb-4 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-slate-400 focus:ring-emerald-500 focus:border-emerald-500"
+                >
+
+                <!-- Category Filters -->
+                <div class="flex flex-wrap gap-2 pt-2">
+                    <span class="text-slate-400 text-sm py-2">အမျိုးအစား:</span>
+                    ${filterButtons}
+                </div>
+            </div>
+        `;
+    }
+
+    function renderMovieList() {
+        contentArea.innerHTML = renderControls();
+        const moviesContainer = document.createElement('div');
+        moviesContainer.className = 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-6';
+        
+        // Filter လုပ်ခြင်း
+        const filteredMovies = allMovies.filter(movie => {
+            const titleMatch = movie.title.toLowerCase().includes(state.searchTerm.toLowerCase());
+            const categoryMatch = state.selectedCategory === 'အားလုံး' || 
+                                  (movie.category && movie.category.toLowerCase().includes(state.selectedCategory.toLowerCase()));
+            return titleMatch && categoryMatch;
+        });
+
+        if (filteredMovies.length === 0) {
+            moviesContainer.innerHTML = `<p class="col-span-full text-center text-slate-400 mt-10">ရှာဖွေမှုရလဒ် မရှိပါ သို့မဟုတ် ရုပ်ရှင်များ ထည့်သွင်းထားခြင်း မရှိသေးပါ။</p>`;
+        } else {
+            moviesContainer.innerHTML = filteredMovies.map(movie => `
+                <div class="movie-card cursor-pointer rounded-xl overflow-hidden bg-slate-800" onclick="window.navigate('detail', '${movie.id}')">
+                    <img 
+                        src="${movie.posterUrl}" 
+                        alt="${movie.title} Poster" 
+                        class="w-full h-48 sm:h-64 object-cover"
+                        onerror="this.onerror=null;this.src='https://placehold.co/400x600/374151/F9FAFB?text=${movie.title.substring(0, 10).trim()}'"
+                    >
+                    <div class="p-3">
+                        <h3 class="text-base font-bold text-white truncate">${movie.title}</h3>
+                        <p class="text-xs text-emerald-400">${movie.category || 'N/A'}</p>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        contentArea.appendChild(moviesContainer);
+    }
+
+    // Filter လုပ်ဆောင်ချက်များ
+    function setSearchTerm(term) {
+        state.searchTerm = term.trim();
+        renderApp();
+    }
+
+    function setCategoryFilter(category) {
+        state.selectedCategory = category;
+        renderApp();
+    }
+
+    // --- Detail View Rendering ---
+
+    function renderMovieDetail() {
+        const movie = allMovies.find(m => m.id == state.selectedMovieId);
+
+        if (!movie) {
+            contentArea.innerHTML = `<p class="text-red-500 text-center mt-20">ရုပ်ရှင်ကို ရှာမတွေ့ပါ။</p>`;
+            return;
+        }
+
+        let screenshots = [];
+        try {
+            // Stringify လုပ်ထားသော JSON ကို Array အဖြစ် ပြန်ပြောင်း
+            const parsedUrls = JSON.parse(movie.screenshotUrls);
+            if (Array.isArray(parsedUrls)) {
+                screenshots = parsedUrls;
+            }
+        } catch (e) {
+            console.error("Screenshot URL များ parse လုပ်ရာတွင် အမှား:", e);
+        }
+
+        const screenshotGallery = screenshots.map((url, index) => `
+            <img 
+                src="${url}" 
+                alt="${movie.title} Screenshot ${index + 1}" 
+                class="w-full h-40 object-cover rounded-lg shadow-md"
+                onerror="this.onerror=null;this.src='https://placehold.co/400x240/1F2937/9CA3AF?text=SCREENSHOT N/A'"
+            >
+        `).join('');
+
+        const detailContent = `
+            <div class="max-w-4xl mx-auto bg-slate-800 p-6 sm:p-8 rounded-xl shadow-2xl">
+                <div class="md:flex md:space-x-8">
+                    <!-- Poster (ဘယ်ဘက်) -->
+                    <div class="md:w-1/3 mb-6 md:mb-0 flex-shrink-0">
+                        <img 
+                            src="${movie.posterUrl}" 
+                            alt="${movie.title} Poster" 
+                            class="w-full h-auto rounded-xl shadow-xl object-cover"
+                            onerror="this.onerror=null;this.src='https://placehold.co/400x600/374151/F9FAFB?text=${movie.title.substring(0, 10).trim()}'"
+                        >
+                    </div>
+                    
+                    <!-- Details (ညာဘက်) -->
+                    <div class="md:w-2/3">
+                        <h2 class="text-4xl font-extrabold text-emerald-400 mb-2">${movie.title}</h2>
+                        
+                        <div class="flex flex-wrap items-center space-x-3 mb-4 text-sm">
+                            <span class="bg-indigo-600 text-white px-3 py-1 rounded-full font-medium">${movie.category || 'အမျိုးအစား မရှိပါ'}</span>
+                            <span class="text-slate-400">|</span>
+                            <span class="text-slate-300 font-medium">${movie.duration || 'ကြာချိန် N/A'}</span>
+                        </div>
+
+                        <p class="text-slate-200 leading-relaxed mb-6">${movie.description}</p>
+                        
+                        <!-- ရုပ်ရှင် ကြည့်ရှုရန် ခလုတ် - admin မှ ထည့်သွင်းထားသော link သို့ တိုက်ရိုက်ရောက်စေရန် သေချာရေးသားထားသည် -->
+                        <a href="${movie.movieLink}" target="_blank" class="inline-flex items-center justify-center bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-lg shadow-xl transition duration-200 transform hover:scale-105">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
+                            </svg>
+                            ရုပ်ရှင် ကြည့်ရှုရန်
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Screenshots Gallery -->
+                ${screenshots.length > 0 ? `
+                    <div class="mt-10 pt-6 border-t border-slate-700">
+                        <h3 class="text-2xl font-bold text-emerald-400 mb-5">ရုပ်ရှင်ပုံများ</h3>
+                        <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                            ${screenshotGallery}
+                        </div>
+                    </div>
+                ` : ''}
+
+            </div>
+        `;
+
+        contentArea.innerHTML = detailContent;
+    }
+
+    // URL Hash ပြောင်းလဲမှုများကို နားထောင်ခြင်း
+    function handleHashChange() {
+        const hash = window.location.hash;
+        if (hash.startsWith('#movie-')) {
+            const movieId = hash.substring(7);
+            navigate('detail', movieId);
+        } else {
+            navigate('list');
+        }
+    }
+
+    // Global scope အတွက် ထုတ်ပေးခြင်း
+    window.navigate = navigate;
+    window.setSearchTerm = setSearchTerm;
+    window.setCategoryFilter = setCategoryFilter;
+    
+    // App စတင်ခြင်း
+    window.addEventListener('hashchange', handleHashChange);
+    initSupabase().then(() => {
+        handleHashChange(); // စတင်ချိန်တွင် URL hash ကို စစ်ဆေးပါ
+    });
+
+</script>
+
+</body>
+</html>
+
